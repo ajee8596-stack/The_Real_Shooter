@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Real Shooter - AJ Studio</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; background-color: #000; touch-action: none; }
+        canvas { display: block; background: #87CEEB; }
+        
+        /* Orientation Lock */
+        #rotateMessage {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; color: #ffcc00; z-index: 1000; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+
+        /* Stats */
+        .ui-container { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; color: #fff; z-index: 100; pointer-events: none; }
+        .ui-stats { font-size: 14px; font-weight: bold; background: rgba(0,0,0,0.7); padding: 6px 12px; border-radius: 6px; border: 1px solid #ffcc00; letter-spacing: 1px; }
+
+        /* Mobile Buttons - Compact */
+        .controls { position: absolute; bottom: 10px; width: 100%; display: flex; justify-content: space-between; padding: 0 25px; box-sizing: border-box; z-index: 300; }
+        .btn-ctrl { 
+            width: 65px; height: 65px; background: rgba(255, 255, 255, 0.1); 
+            border: 2px solid rgba(255,255,255,0.6); border-radius: 50%; color: white; 
+            display: flex; justify-content: center; align-items: center; 
+            font-weight: bold; font-size: 18px; user-select: none;
+        }
+        .btn-ctrl:active { background: rgba(255, 255, 255, 0.3); transform: scale(0.9); }
+
+        #bossHealthContainer { display: none; position: absolute; top: 40px; left: 50%; transform: translateX(-50%); width: 40%; height: 12px; background: #333; border: 1px solid #fff; border-radius: 8px; z-index: 15; overflow: hidden; }
+        #bossHealthBar { width: 100%; height: 100%; background: linear-gradient(to right, #ff3e3e, #ffcc00); }
+
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 500; background: rgba(0,0,0,0.9); text-align: center; }
+        .start-btn { padding: 10px 30px; font-size: 20px; background: #27ae60; color: white; border: none; border-radius: 20px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+
+        @media screen and (orientation: portrait) {
+            #rotateMessage { display: flex; }
+            #mobileControls, .ui-container { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="rotateMessage">
+        <h1 style="font-size: 50px;">📱</h1>
+        <h2>ROTATE TO LANDSCAPE</h2>
+        <p>Behtreen view ke liye phone terha karein</p>
+    </div>
+
+    <div class="ui-container">
+        <div class="ui-stats">LVL: <span id="lvl">1</span> | SCR: <span id="scr">0</span> | HP: <span id="hlt">100</span>%</div>
+        <div style="color:#ffcc00; font-weight:bold; font-size: 16px;">THE REAL SHOOTER</div>
+    </div>
+
+    <div id="bossHealthContainer"><div id="bossHealthBar"></div></div>
+
+    <div class="controls" id="mobileControls">
+        <div style="display: flex; gap: 15px;">
+            <div class="btn-ctrl" id="leftBtn">◀</div>
+            <div class="btn-ctrl" id="rightBtn">▶</div>
+        </div>
+        <div style="display: flex; gap: 15px;">
+            <div class="btn-ctrl" id="jumpBtn" style="border-color: #2ecc71; color: #2ecc71;">JUMP</div>
+            <div class="btn-ctrl" id="fireBtn" style="border-color: #e74c3c; color: #e74c3c;">FIRE</div>
+        </div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+        <h1 style="color:#ffcc00; font-size: 45px; margin:0; text-shadow: 3px 3px #000;">THE REAL SHOOTER</h1>
+        <p style="color: #ccc;">Developed by AJ Studio</p>
+        <button class="start-btn" onclick="startGame()">START MISSION</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay" style="display:none;">
+        <h1 style="color:#ff4757; font-size: 40px;">MISSION FAILED</h1>
+        <button class="start-btn" style="background:#3498db;" onclick="location.reload()">TRY AGAIN</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let score, health, level, gameRunning = false, isBossMode, nextBossScore, gameSpeed;
+        const keys = {};
+
+        // Assets
+        const ratImg = new Image(); ratImg.src = 'rat.png';
+        const catImg = new Image(); catImg.src = 'cat.png';
+        const bossImg = new Image(); bossImg.src = 'boss.png';
+        const bulletImg = new Image(); bulletImg.src = 'bullet.png';
+        const crowImg = new Image(); crowImg.src = 'crow.png';
+        const bossFireImg = new Image(); bossFireImg.src = 'boss_fire.png';
+
+        // Controls Setup
+        const setupBtn = (id, key) => {
+            const btn = document.getElementById(id);
+            if(!btn) return;
+            btn.addEventListener("touchstart", (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener("touchend", (e) => { e.preventDefault(); keys[key] = false; });
+        };
+        setupBtn("leftBtn", "ArrowLeft");
+        setupBtn("rightBtn", "ArrowRight");
+        document.getElementById("jumpBtn").addEventListener("touchstart", (e) => { e.preventDefault(); if(rat.grounded) jump(); });
+        document.getElementById("fireBtn").addEventListener("touchstart", (e) => { e.preventDefault(); shoot(); });
+
+        function jump() { rat.dy = rat.jumpPower; rat.grounded = false; }
+        function shoot() { bullets.push({ x: rat.x + 80, y: rat.y + 30, w: 35, h: 18, v: 20 }); }
+
+        function init() {
+            score = 0; health = 100; level = 1; gameRunning = true;
+            isBossMode = false; nextBossScore = 500; gameSpeed = 5;
+            bullets = []; enemyBullets = []; cats = []; crows = []; stars = [];
+            // Reduced Sizes for Mobile
+            rat = { x: 80, y: canvas.height - 160, w: 100, h: 80, dy: 0, speed: 8, jumpPower: -19, gravity: 0.85, grounded: false };
+            for(let i=0; i<50; i++) stars.push({x: Math.random()*canvas.width, y: Math.random()*canvas.height, s: Math.random()*2});
+        }
+
+        function startGame() { 
+            if(window.innerHeight > window.innerWidth) return;
+            init(); 
+            document.getElementById("startScreen").style.display = "none"; 
+            update(); 
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            if (keys["ArrowLeft"] && rat.x > 0) rat.x -= rat.speed;
+            if (keys["ArrowRight"] && rat.x < canvas.width - rat.w) rat.x += rat.speed;
+            rat.dy += rat.gravity; rat.y += rat.dy;
+            if (rat.y > canvas.height - 160) { rat.y = canvas.height - 160; rat.dy = 0; rat.grounded = true; }
+
+            // Boss Logic
+            if (score >= nextBossScore && !isBossMode) {
+                isBossMode = true; cats = []; crows = [];
+                document.getElementById("bossHealthContainer").style.display = "block";
+                cats.push({ x: canvas.width - 250, startX: canvas.width - 250, y: -250, targetY: canvas.height - 280, w: 220, h: 200, boss: true, hp: 100, maxHp: 100, state: 'falling', last: Date.now() });
+            }
+
+            if (!isBossMode) {
+                if (Math.random() < 0.015) cats.push({ x: canvas.width, y: canvas.height - 150, w: 70, h: 60, boss: false });
+                if (Math.random() < 0.006) crows.push({ x: canvas.width, y: canvas.height - 250, w: 60, h: 45, speed: gameSpeed + 1, fired: false });
+            }
+
+            // Move Cats & Boss
+            for (let i = cats.length - 1; i >= 0; i--) {
+                let c = cats[i];
+                if (c.boss) {
+                    if (c.state === 'falling') { c.y += 8; if (c.y >= c.targetY) c.state = 'fight'; }
+                    else {
+                        let now = Date.now();
+                        if (now - c.last > 1400) { fireE(c, true); c.last = now; }
+                        c.x = c.startX + Math.sin(Date.now()/500) * 60;
+                    }
+                } else {
+                    c.x -= gameSpeed;
+                    if (checkC(rat, c)) { health -= 10; cats.splice(i, 1); }
+                }
+                if(c.x < -300) cats.splice(i, 1);
+            }
+
+            // Move Crows
+            for (let i = crows.length - 1; i >= 0; i--) {
+                let cr = crows[i]; cr.x -= cr.speed;
+                if (!cr.fired && cr.x < rat.x + 400) { fireE(cr, false); cr.fired = true; }
+                if (checkC(rat, cr)) { health -= 5; crows.splice(i, 1); }
+                if(cr.x < -100) crows.splice(i, 1);
+            }
+
+            function fireE(e, isB) {
+                let ang = Math.atan2((rat.y + 40) - (e.y + 40), (rat.x + 40) - e.x);
+                enemyBullets.push({ x: e.x, y: e.y + 40, w: isB?50:15, h: isB?30:12, vx: Math.cos(ang)*10, vy: Math.sin(ang)*10, isB: isB });
+            }
+
+            // Bullet Logic
+            for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                let b = bullets[bi]; b.x += b.v;
+                cats.forEach((c, ci) => {
+                    if (bullets[bi] && checkC(b, c)) {
+                        bullets.splice(bi, 1);
+                        if (c.boss) {
+                            c.hp--;
+                            document.getElementById("bossHealthBar").style.width = (c.hp / c.maxHp * 100) + "%";
+                            if (c.hp <= 0) {
+                                isBossMode = false; cats.splice(ci, 1); level++; score += 300; nextBossScore += 1000;
+                                document.getElementById("bossHealthContainer").style.display = "none";
+                            }
+                        } else { cats.splice(ci, 1); score += 10; }
+                    }
+                });
+                if(b.x > canvas.width) bullets.splice(bi, 1);
+            }
+
+            enemyBullets.forEach((eb, i) => { eb.x += eb.vx; eb.y += eb.vy; if (checkC(eb, rat)) { health -= eb.isB ? 15 : 5; enemyBullets.splice(i, 1); } });
+
+            if (health <= 0) { gameRunning = false; document.getElementById("gameOverScreen").style.display = "flex"; }
+
+            document.getElementById("scr").innerText = score;
+            document.getElementById("hlt").innerText = Math.max(0, health);
+            document.getElementById("lvl").innerText = level;
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function checkC(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (isBossMode) {
+                ctx.fillStyle = "#050510"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "white"; stars.forEach(s => ctx.fillRect(s.x, s.y, s.s, s.s));
+            } else {
+                ctx.fillStyle = "#87CEEB"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
+            ctx.drawImage(ratImg, rat.x, rat.y, rat.w, rat.h);
+            cats.forEach(c => ctx.drawImage(c.boss ? bossImg : catImg, c.x, c.y, c.w, c.h));
+            crows.forEach(cr => ctx.drawImage(crowImg, cr.x, cr.y, cr.w, cr.h));
+            bullets.forEach(b => ctx.drawImage(bulletImg, b.x, b.y, b.w, b.h));
+            enemyBullets.forEach(eb => {
+                if (eb.isB) ctx.drawImage(bossFireImg, eb.x, eb.y, eb.w, eb.h);
+                else { ctx.fillStyle = "yellow"; ctx.beginPath(); ctx.arc(eb.x, eb.y, 6, 0, Math.PI*2); ctx.fill(); }
+            });
+        }
+    </script>
+</body>
+</html>
